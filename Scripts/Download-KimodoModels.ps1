@@ -10,7 +10,9 @@ param(
     [Parameter(Mandatory=$true)][string]$EncoderDirectory,
     [Parameter(Mandatory=$true)][string]$AdapterDirectory,
     [string]$PythonExecutable = '',
-    [string]$HfExecutable = ''
+    [string]$HfExecutable = '',
+    [ValidateSet('Fp16','Int8','Nf4')][string]$ModelPreset = 'Fp16',
+    [string]$QuantizedDirectory = ''
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -45,7 +47,7 @@ if ($identityExit -ne 0 -or [string]::IsNullOrWhiteSpace($identityText) -or
 }
 try {
     $pluginPath = [IO.Directory]::GetParent($PSScriptRoot).FullName.TrimEnd('\','/')
-    $destinations = @($MotionDirectory,$EncoderDirectory,$AdapterDirectory)
+    $destinations = if ($ModelPreset -eq 'Fp16') { @($MotionDirectory,$EncoderDirectory,$AdapterDirectory) } else { @($MotionDirectory,$QuantizedDirectory) }
     foreach ($path in @($WorkspaceDirectory) + $destinations) {
         if (-not [IO.Path]::IsPathRooted($path)) { throw 'Select absolute repository and workspace directories.' }
         $fullPath = [IO.Path]::GetFullPath($path).TrimEnd('\','/')
@@ -74,8 +76,18 @@ try {
     $repositories = @('nvidia/Kimodo-SOMA-RP-v1.2',
         'McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp',
         'McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised')
+    $revision = ''
+    if ($ModelPreset -eq 'Int8') {
+        $repositories = @($repositories[0], 'voxta/Llama-3-8B-LLM2Vec-ARDY-INT8')
+        $revision = '96c7eb1cc9100cd3925662d1093926c00b64a698'
+    } elseif ($ModelPreset -eq 'Nf4') {
+        $repositories = @($repositories[0], 'voxta/Llama-3-8B-LLM2Vec-ARDY-NF4')
+        $revision = 'f746923e9e7edb3b6fc54aae7dfd8cecb0f52a8f'
+    }
     for ($i = 0; $i -lt $repositories.Length; $i++) {
-        & $HfExecutable download $repositories[$i] --local-dir $destinations[$i]
+        $downloadArguments = @('download', $repositories[$i], '--local-dir', $destinations[$i])
+        if ($i -eq 1 -and $revision) { $downloadArguments += @('--revision', $revision) }
+        & $HfExecutable @downloadArguments
         if ($LASTEXITCODE -ne 0) { exit 1 }
     }
 } catch {

@@ -5,6 +5,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using UnityEngine;
 
 namespace KimodoForUnity
 {
@@ -33,7 +34,7 @@ namespace KimodoForUnity
             => Task.Run(() =>
             {
                 var results = new List<KimodoCheckItem>();
-                for (var i = 0; i < Repositories.Length; i++)
+                for (var i = 0; i < (KimodoModelPresets.IsQuantized(config) ? 1 : Repositories.Length); i++)
                 {
                     cancellation.ThrowIfCancellationRequested();
                     try
@@ -47,6 +48,16 @@ namespace KimodoForUnity
                     {
                         results.Add(new KimodoCheckItem { name = Repositories[i], passed = false, detail = ex.Message });
                     }
+                }
+                if (KimodoModelPresets.IsQuantized(config))
+                {
+                    try
+                    {
+                        CheckQuantizedEncoder(config, cancellation);
+                        results.Add(new KimodoCheckItem { name = KimodoModelPresets.Repository(config), passed = true, detail = KimodoModelPresets.Directory(config) });
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex) { results.Add(new KimodoCheckItem { name = KimodoModelPresets.Repository(config), passed = false, detail = ex.Message }); }
                 }
                 return results;
             }, cancellation);
@@ -83,7 +94,57 @@ namespace KimodoForUnity
                 catch (UnauthorizedAccessException) { }
                 value.Append('\n');
             }
+            if (KimodoModelPresets.IsQuantized(config))
+            {
+                var directory = KimodoModelPresets.Directory(config);
+                value.Append(directory);
+                foreach (var name in new[] { "config.json", "llm2vec_config.json", "model.safetensors", "tokenizer.json" })
+                {
+                    if (string.IsNullOrEmpty(directory)) continue;
+                    var file = new FileInfo(Path.Combine(directory, name));
+                    value.Append('|').Append(file.Exists ? file.LastWriteTimeUtc.Ticks : 0);
+                }
+            }
             return value.ToString();
+        }
+
+        [Serializable]
+        private sealed class EncoderMetadata
+        {
+            public string model_type;
+            public int hidden_size;
+            public QuantizationMetadata quantization_config;
+        }
+
+        [Serializable]
+        private sealed class QuantizationMetadata
+        {
+            public string quant_method;
+            public bool load_in_8bit;
+            public bool load_in_4bit;
+            public string bnb_4bit_quant_type;
+        }
+
+        /// <summary>Checks the selected merged format without loading weights or accepting custom Python code.</summary>
+        public static void CheckQuantizedEncoder(KimodoConfiguration config, CancellationToken cancellation)
+        {
+            var directory = KimodoModelPresets.Directory(config);
+            CheckDirectory(new KimodoModelLocation { directory = directory }, cancellation);
+            CheckBaseModel(directory);
+            foreach (var name in new[] { "tokenizer.json", "tokenizer_config.json", "llm2vec_config.json" })
+                if (!File.Exists(Path.Combine(directory, name))) throw new InvalidDataException("Missing encoder file: " + name);
+            if (File.Exists(Path.Combine(directory, "adapter_config.json")))
+                throw new InvalidDataException("Select a merged encoder without separate adapter weights.");
+            var file = Path.Combine(directory, "config.json");
+            if (new FileInfo(file).Length > 65536) throw new InvalidDataException("Encoder config exceeds 64 KiB.");
+            var metadata = JsonUtility.FromJson<EncoderMetadata>(File.ReadAllText(file));
+            var quant = metadata?.quantization_config;
+            if (metadata == null || metadata.model_type != "llama" || metadata.hidden_size != 4096 || quant == null
+                || quant.quant_method != "bitsandbytes") throw new InvalidDataException("Expected a merged Llama 3 LLM2Vec bitsandbytes encoder.");
+            var matching = config.modelPreset == KimodoModelPreset.Int8
+                ? quant.load_in_8bit && !quant.load_in_4bit
+                : quant.load_in_4bit && !quant.load_in_8bit && quant.bnb_4bit_quant_type == "nf4";
+            if (!matching) throw new InvalidDataException("Encoder quantization does not match the selected model combination.");
         }
 
         /// <summary>Rejects an adapter-only directory in place of the required full base model.</summary>
@@ -99,8 +160,10 @@ namespace KimodoForUnity
         /// <summary>Builds a local adapter view with its base-model reference resolved to the selected directory.</summary>
         public static string CreateLayout(KimodoConfiguration config)
         {
-            for (var i = 0; i < Repositories.Length; i++) CheckDirectory(config.models[i], CancellationToken.None);
-            CheckBaseModel(config.models[3].directory);
+            for (var i = 0; i < (KimodoModelPresets.IsQuantized(config) ? 1 : Repositories.Length); i++)
+                CheckDirectory(config.models[i], CancellationToken.None);
+            if (KimodoModelPresets.IsQuantized(config)) CheckQuantizedEncoder(config, CancellationToken.None);
+            else CheckBaseModel(config.models[3].directory);
             var root = KimodoPaths.Child(config.assetsRoot, "RuntimeModels", Guid.NewGuid().ToString("N"));
             var script = Path.Combine(Path.GetDirectoryName(KimodoInstaller.ScriptPath()), "Prepare-KimodoModels.ps1");
             var command = "& " + KimodoInstaller.PsQuote(script) + " -RuntimeDirectory " + KimodoInstaller.PsQuote(root)
@@ -108,6 +171,8 @@ namespace KimodoForUnity
                 + " -EncoderDirectory " + KimodoInstaller.PsQuote(config.models[1].directory)
                 + " -AdapterDirectory " + KimodoInstaller.PsQuote(config.models[2].directory)
                 + " -BaseDirectory " + KimodoInstaller.PsQuote(config.models[3].directory)
+                + " -ModelPreset " + KimodoInstaller.PsQuote(config.modelPreset.ToString())
+                + " -QuantizedDirectory " + KimodoInstaller.PsQuote(KimodoModelPresets.Directory(config))
                 + "; exit $LASTEXITCODE";
             var info = KimodoInstaller.PowerShellCommand(command);
             using (var child = new KimodoOwnedProcess(info))

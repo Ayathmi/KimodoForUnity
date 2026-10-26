@@ -138,7 +138,9 @@ namespace KimodoForUnity.Tests
             Directory.CreateDirectory(Path.Combine(folder, "output"));
             if (success)
             {
-                File.WriteAllText(Path.Combine(folder, "output", "motion.bvh"), KimodoTestFixture.Motion());
+                var text = KimodoTestFixture.Motion();
+                job.duration = KimodoBvh.Parse(text).Duration;
+                File.WriteAllText(Path.Combine(folder, "output", "motion.bvh"), text);
                 File.WriteAllBytes(Path.Combine(folder, "output", "motion.npz"), new byte[] { 1 });
             }
             var generation = StartProcess(false);

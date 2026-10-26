@@ -32,6 +32,10 @@ namespace KimodoForUnity
         public bool cuda;
         /// <summary>Detected device name.</summary>
         public string gpu;
+        /// <summary>Primary CUDA compute capability.</summary>
+        public int computeMajor;
+        /// <summary>Primary CUDA compute capability minor version.</summary>
+        public int computeMinor;
         /// <summary>Module import observations.</summary>
         public KimodoCheckItem[] modules;
     }
@@ -48,13 +52,19 @@ namespace KimodoForUnity
 
         /// <summary>Local import introspection only; no model construction or network client.</summary>
         public const string ProbeCode =
-            "import sys,json,importlib\n" +
+            "import sys,json,importlib,os\n" +
             "r={'version':sys.version.split()[0],'pythonSupported':sys.version_info>=(3,10),'cuda':False,'gpu':'','modules':[]}\n" +
-            "for name in ['torch','kimodo','transformers','motion_correction._motion_correction','bvhio','glm','gradio','gradio_client','peft']:\n" +
+            "names=['torch','kimodo','transformers','motion_correction._motion_correction','bvhio','glm','gradio','gradio_client','peft']\n" +
+            "if os.environ.get('KIMODO_UNITY_PRESET','Fp16')!='Fp16': names+=['bitsandbytes','accelerate']\n" +
+            "for name in names:\n" +
             " try:\n" +
             "  m=importlib.import_module(name); r['modules'].append({'name':name,'passed':True,'detail':str(getattr(m,'__version__','import OK'))})\n" +
             "  if name=='torch':\n" +
             "   r['cuda']=bool(m.cuda.is_available()); r['gpu']=m.cuda.get_device_name(0) if r['cuda'] else ''\n" +
+            "   r['computeMajor'],r['computeMinor']=m.cuda.get_device_capability(0) if r['cuda'] else (0,0)\n" +
+            "  if name=='bitsandbytes':\n" +
+            "   from bitsandbytes.cextension import lib\n" +
+            "   if not getattr(lib,'compiled_with_cuda',False): raise RuntimeError('bitsandbytes CUDA backend unavailable')\n" +
             " except Exception as e: r['modules'].append({'name':name,'passed':False,'detail':type(e).__name__+': '+str(e)})\n" +
             "print('KIMODO_PROBE_JSON:'+json.dumps(r))\n";
 
@@ -85,11 +95,14 @@ namespace KimodoForUnity
         }
 
         /// <summary>Tests the complete basic dependency report; model loading remains a separate test.</summary>
-        public static bool CanGenerate(KimodoPythonProbe probe, List<KimodoCheckItem> files)
+        public static bool CanGenerate(KimodoPythonProbe probe, List<KimodoCheckItem> files, KimodoConfiguration config = null)
         {
-            if (probe == null || !probe.pythonSupported || !probe.cuda || probe.modules == null || probe.modules.Length != 9
-                || files == null || files.Count != KimodoModelFiles.Repositories.Length)
+            var quantized = config != null && KimodoModelPresets.IsQuantized(config);
+            if (probe == null || !probe.pythonSupported || !probe.cuda || probe.modules == null || probe.modules.Length != (quantized ? 11 : 9)
+                || files == null || files.Count != (quantized ? 2 : KimodoModelFiles.Repositories.Length))
                 return false;
+            if (quantized && (config.cpuTextEncoder || probe.computeMajor * 10 + probe.computeMinor
+                < (config.modelPreset == KimodoModelPreset.Int8 ? 75 : 60))) return false;
             foreach (var module in probe.modules)
                 if (!module.passed) return false;
             foreach (var file in files)

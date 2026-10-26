@@ -12,7 +12,8 @@ namespace KimodoForUnity
     {
         private KimodoConfiguration config;
         private string prompt = "A person walks forward at a steady pace.";
-        private float duration = 5;
+        private int duration = 5;
+        private int frameRate = 30;
         private int steps = 100;
         private int seed = 42;
         private int tab;
@@ -60,6 +61,12 @@ namespace KimodoForUnity
             preview = null;
         }
 
+        private void OnFocus()
+        {
+            // Saved Wizard paths become visible without discarding the prompt or import preview.
+            config = KimodoConfiguration.Load();
+        }
+
         private void Tick()
         {
             if (playing && motion != null && EditorApplication.timeSinceStartup - lastFrame >= motion.FrameTime)
@@ -92,16 +99,18 @@ namespace KimodoForUnity
 
         private void DrawGeneration()
         {
+            KimodoModelPresets.DrawSelector(config);
             GUILayout.Label(KimodoConfiguration.Model + " | " + (config.cpuTextEncoder
                 ? T("CPU 文本编码备用模式", "CPU text encoder fallback") : T("CUDA 文本编码器", "CUDA text encoder")));
             GUILayout.Label(T("动作描述，建议英文", "Motion prompt, English recommended"));
             prompt = EditorGUILayout.TextArea(prompt, GUILayout.MinHeight(75));
-            duration = EditorGUILayout.FloatField(T("时长，秒", "Duration, seconds"), duration);
+            frameRate = Mathf.Clamp(EditorGUILayout.IntField(T("帧速率", "Frame rate"), frameRate), 1, 60);
+            duration = Mathf.Clamp(EditorGUILayout.IntField(T("时长，秒（1–10）", "Duration, seconds (1–10)"), duration), 1, 10);
             seed = EditorGUILayout.IntField(T("随机种子", "Seed"), seed);
             steps = EditorGUILayout.IntField(T("去噪步数", "Diffusion steps"), steps);
             using (new EditorGUI.DisabledScope(!KimodoSession.IsInspected(config)))
                 if (GUILayout.Button(T("加入生成队列", "Queue generation"), GUILayout.Height(32)))
-                    Try(() => KimodoSession.Enqueue(config, prompt, duration, seed, steps));
+                    Try(() => KimodoSession.Enqueue(config, prompt, duration, seed, steps, frameRate));
             if (!KimodoSession.IsInspected(config))
                 EditorGUILayout.HelpBox(T("当前配置尚未通过本次编辑器会话的依赖检测。", "These settings have not passed dependency checks in this Editor session."), MessageType.Warning);
             EditorGUILayout.BeginHorizontal();
@@ -244,7 +253,13 @@ namespace KimodoForUnity
                 EditorGUILayout.BeginHorizontal();
                 if (GUILayout.Button(T("复用参数", "Reuse parameters")))
                 {
-                    prompt = job.prompt; duration = job.duration; seed = job.seed; steps = job.steps; tab = 0;
+                    Try(() =>
+                    {
+                        KimodoModelPresets.Set(config, job.modelPreset);
+                        prompt = job.prompt; duration = Mathf.Clamp(Mathf.RoundToInt(job.duration), 1, 10);
+                        frameRate = job.requestedFps > 0 ? job.requestedFps : 30;
+                        seed = job.seed; steps = job.steps; tab = 0;
+                    });
                 }
                 if (GUILayout.Button(T("打开目录", "Open folder")))
                     Try(() => EditorUtility.RevealInFinder(KimodoSession.JobFolder(config, job.id)));

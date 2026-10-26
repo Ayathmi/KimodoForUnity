@@ -16,12 +16,15 @@ namespace KimodoForUnity
             KimodoPaths.ValidateRoot(config.assetsRoot);
             if (config.models == null || config.models.Length != KimodoModelFiles.Repositories.Length)
                 throw new ArgumentException("Select all repository directories.");
-            for (var i = 0; i < config.models.Length; i++)
+            var directories = KimodoModelPresets.IsQuantized(config)
+                ? new[] { config.models[0].directory, KimodoModelPresets.Directory(config) }
+                : Array.ConvertAll(config.models, model => model.directory);
+            for (var i = 0; i < directories.Length; i++)
             {
-                KimodoPaths.ValidateRoot(config.models[i].directory);
+                KimodoPaths.ValidateRoot(directories[i]);
                 for (var j = 0; j < i; j++)
-                    if (KimodoPaths.Within(config.models[i].directory, config.models[j].directory)
-                        || KimodoPaths.Within(config.models[j].directory, config.models[i].directory))
+                    if (KimodoPaths.Within(directories[i], directories[j])
+                        || KimodoPaths.Within(directories[j], directories[i]))
                         throw new ArgumentException("Select separate repository directories.");
             }
         }
@@ -37,6 +40,8 @@ namespace KimodoForUnity
                 + " -MotionDirectory " + KimodoInstaller.PsQuote(config.models[0].directory)
                 + " -EncoderDirectory " + KimodoInstaller.PsQuote(config.models[1].directory)
                 + " -AdapterDirectory " + KimodoInstaller.PsQuote(config.models[2].directory)
+                + " -ModelPreset " + KimodoInstaller.PsQuote(config.modelPreset.ToString())
+                + " -QuantizedDirectory " + KimodoInstaller.PsQuote(KimodoModelPresets.Directory(config))
                 + "; exit $LASTEXITCODE";
             return KimodoInstaller.PowerShellCommand(command);
         }
@@ -64,6 +69,7 @@ namespace KimodoForUnity
         /// <summary>Creates an isolated Ollama download and conversion command without elevating Unity.</summary>
         public static ProcessStartInfo OllamaStartInfo(KimodoConfiguration config)
         {
+            if (KimodoModelPresets.IsQuantized(config)) throw new InvalidOperationException("Ollama conversion is only used by the original FP16 combination.");
             ValidateDirectories(config);
             KimodoPaths.ValidateRoot(config.ollamaModelsPath);
             if (!Path.IsPathRooted(config.ollamaPath ?? "") || !File.Exists(config.ollamaPath))

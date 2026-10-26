@@ -9,19 +9,27 @@ param(
     [Parameter(Mandatory=$true)][string]$MotionDirectory,
     [Parameter(Mandatory=$true)][string]$EncoderDirectory,
     [Parameter(Mandatory=$true)][string]$AdapterDirectory,
-    [Parameter(Mandatory=$true)][string]$BaseDirectory
+    [Parameter(Mandatory=$true)][string]$BaseDirectory,
+    [ValidateSet('Fp16','Int8','Nf4')][string]$ModelPreset = 'Fp16',
+    [string]$QuantizedDirectory = ''
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 try {
     $runtimePath = [IO.Path]::GetFullPath($RuntimeDirectory)
     if (Test-Path -LiteralPath $runtimePath) { throw 'Select a new runtime directory.' }
-    foreach ($source in @($MotionDirectory,$EncoderDirectory,$AdapterDirectory,$BaseDirectory)) {
+    $sources = if ($ModelPreset -eq 'Fp16') { @($MotionDirectory,$EncoderDirectory,$AdapterDirectory,$BaseDirectory) } else { @($MotionDirectory,$QuantizedDirectory) }
+    foreach ($source in $sources) {
         if (-not (Test-Path -LiteralPath $source -PathType Container)) { throw "Missing repository directory: $source" }
         $sourcePath = [IO.Path]::GetFullPath($source).TrimEnd('\','/')
         if ($runtimePath.StartsWith($sourcePath + '\',[StringComparison]::OrdinalIgnoreCase)) {
             throw 'Runtime views must be outside the downloaded repositories.'
         }
+    }
+    if ($ModelPreset -ne 'Fp16') {
+        [IO.Directory]::CreateDirectory($runtimePath) | Out-Null
+        New-Item -ItemType Junction -Path (Join-Path $runtimePath 'Kimodo-SOMA-RP-v1.2') -Value ([IO.Path]::GetFullPath($MotionDirectory)) | Out-Null
+        exit 0
     }
     $adapterFile = Join-Path $EncoderDirectory 'adapter_config.json'
     $adapterConfig = Get-Content -Raw -LiteralPath $adapterFile | ConvertFrom-Json

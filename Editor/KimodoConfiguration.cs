@@ -12,7 +12,7 @@ namespace KimodoForUnity
     public sealed class KimodoConfiguration
     {
         /// <summary>Configuration schema.</summary>
-        public int schemaVersion = 6;
+        public int schemaVersion = 7;
         /// <summary>External asset root selected by the user.</summary>
         public string assetsRoot = "";
         /// <summary>Existing user-managed interpreter.</summary>
@@ -31,6 +31,12 @@ namespace KimodoForUnity
         public string ollamaModelsPath = "";
         /// <summary>User-selected local model repository directories.</summary>
         public KimodoModelLocation[] models = CreateModels();
+        /// <summary>Selected text-encoder combination; motion weights remain unchanged.</summary>
+        public KimodoModelPreset modelPreset;
+        /// <summary>Merged INT8 encoder repository, separate from original model directories.</summary>
+        public string int8Directory = "";
+        /// <summary>Merged NF4 encoder repository, separate from original model directories.</summary>
+        public string nf4Directory = "";
         /// <summary>Explicit opt-in fallback; CUDA remains the default.</summary>
         public bool cpuTextEncoder;
         /// <summary>Loopback service port.</summary>
@@ -44,7 +50,7 @@ namespace KimodoForUnity
         /// <summary>Fixed supported motion model.</summary>
         public const string Model = "Kimodo-SOMA-RP-v1.2";
         /// <summary>Plugin release version.</summary>
-        public const string Version = "0.2.0";
+        public const string Version = "0.3.0";
 
         /// <summary>Loads settings without creating folders or starting processes.</summary>
         public static KimodoConfiguration Load()
@@ -61,10 +67,11 @@ namespace KimodoForUnity
                 if (new FileInfo(path).Length > 65536)
                     throw new InvalidDataException("Settings exceed 64 KiB.");
                 var result = JsonUtility.FromJson<KimodoConfiguration>(File.ReadAllText(path));
-                if (result == null || result.schemaVersion < 1 || result.schemaVersion > 6)
+                if (result == null || result.schemaVersion < 1 || result.schemaVersion > 7)
                     throw new InvalidDataException("Unsupported settings schema.");
                 result.assetsRoot = root;
                 result.Normalize();
+                KimodoModelPresets.Synchronize(result);
                 return result;
             }
             catch (Exception ex)
@@ -79,6 +86,7 @@ namespace KimodoForUnity
         {
             KimodoPaths.ValidateRoot(assetsRoot);
             Normalize();
+            KimodoModelPresets.Synchronize(this);
             KimodoPaths.ValidateRoot(installRoot);
             if (port < 1024 || port > 65535)
                 throw new ArgumentException("Service port must be 1024-65535.");
@@ -96,7 +104,8 @@ namespace KimodoForUnity
         /// <summary>Migrates local preferences without selecting tools or changing downloaded files.</summary>
         public void Normalize()
         {
-            schemaVersion = 6;
+            schemaVersion = 7;
+            if (!Enum.IsDefined(typeof(KimodoModelPreset), modelPreset)) modelPreset = KimodoModelPreset.Fp16;
             ninjaPath = ninjaPath ?? "";
             gccPath = gccPath ?? "";
             gxxPath = gxxPath ?? "";
@@ -114,6 +123,11 @@ namespace KimodoForUnity
                 if (string.IsNullOrEmpty(models[i].directory) && !string.IsNullOrEmpty(assetsRoot))
                     models[i].directory = i == 0 ? Path.Combine(assetsRoot, "Models", Model)
                         : Path.Combine(assetsRoot, "Models", "TextEncoders", i == 3 ? "Ollama-Llama3-8B-Instruct-FP16" : KimodoModelFiles.Repositories[i]);
+            }
+            if (!string.IsNullOrEmpty(assetsRoot))
+            {
+                if (string.IsNullOrEmpty(int8Directory)) int8Directory = Path.Combine(assetsRoot, "Models", "TextEncoders", "LLM2Vec-INT8");
+                if (string.IsNullOrEmpty(nf4Directory)) nf4Directory = Path.Combine(assetsRoot, "Models", "TextEncoders", "LLM2Vec-NF4");
             }
         }
 

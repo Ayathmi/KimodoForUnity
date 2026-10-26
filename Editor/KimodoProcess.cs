@@ -69,6 +69,9 @@ namespace KimodoForUnity
             env["GRADIO_SERVER_NAME"] = "127.0.0.1";
             env["GRADIO_SERVER_PORT"] = config.port.ToString(System.Globalization.CultureInfo.InvariantCulture);
             env["TEXT_ENCODER_DEVICE"] = config.cpuTextEncoder ? "cpu" : "cuda";
+            env["KIMODO_UNITY_PRESET"] = config.modelPreset.ToString();
+            env["KIMODO_UNITY_ENCODER"] = KimodoModelPresets.Directory(config) ?? "";
+            if (KimodoModelPresets.IsQuantized(config)) env["CUDA_VISIBLE_DEVICES"] = "0";
             env["TEXT_ENCODER_MODE"] = "api";
             env["TEXT_ENCODER_URL"] = "http://127.0.0.1:" + env["GRADIO_SERVER_PORT"];
             env["CHECKPOINT_DIR"] = modelLayout ?? Path.Combine(config.assetsRoot, "Models");

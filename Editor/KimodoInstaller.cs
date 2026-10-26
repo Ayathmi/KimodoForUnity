@@ -22,21 +22,26 @@ namespace KimodoForUnity
         }
 
         /// <summary>Starts an explicit installation; opening the Wizard never invokes this method.</summary>
-        public static KimodoElevatedInstallation Start(KimodoConfiguration config)
+        public static KimodoElevatedInstallation Start(KimodoConfiguration config, bool quantizationOnly = false)
         {
             config.Normalize();
             KimodoPaths.ValidateRoot(config.assetsRoot);
             KimodoPaths.ValidateRoot(config.installRoot);
-            if (!File.Exists(config.pythonPath)) throw new FileNotFoundException("Python executable was not found.", config.pythonPath);
-            ValidateBuildTool(config.ninjaPath, "ninja.exe");
-            ValidateBuildTool(config.gccPath, "gcc.exe");
-            ValidateBuildTool(config.gxxPath, "g++.exe");
+            if (!File.Exists(quantizationOnly ? config.InstalledPython : config.pythonPath))
+                throw new FileNotFoundException("Python executable was not found.");
+            if (!quantizationOnly)
+            {
+                ValidateBuildTool(config.ninjaPath, "ninja.exe");
+                ValidateBuildTool(config.gccPath, "gcc.exe");
+                ValidateBuildTool(config.gxxPath, "g++.exe");
+            }
             var logDirectory = KimodoPaths.Child(config.assetsRoot, "Logs", "Install-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(logDirectory);
             var command = "& " + PsQuote(Path.Combine(Path.GetDirectoryName(ScriptPath()), "Run-KimodoElevated.ps1"))
-                + " -PythonExecutable " + PsQuote(config.pythonPath)
+                + " -PythonExecutable " + PsQuote(quantizationOnly ? config.InstalledPython : config.pythonPath)
                 + " -WorkspaceDirectory " + PsQuote(config.assetsRoot) + " -InstallDirectory " + PsQuote(config.installRoot)
                 + BuildToolArguments(config) + " -LogDirectory " + PsQuote(logDirectory);
+            if (quantizationOnly) command += " -QuantizationOnly";
             using (var editor = Process.GetCurrentProcess())
                 command += " -ParentProcessId " + editor.Id + " -ParentStartTicks "
                     + editor.StartTime.ToUniversalTime().Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -102,6 +107,7 @@ namespace KimodoForUnity
                 + "& " + python + " -m pip install --no-build-isolation 'kimodo @ https://github.com/nv-tlabs/kimodo/archive/e1c219c99b4b94ba48be1fb6a1cbc64ecee4c954.zip'\n"
                 + "if ($LASTEXITCODE -ne 0) { throw 'Kimodo installation failed.' }\n"
                 + "& " + python + " -m pip install gguf==0.19.0\n"
+                + "& " + python + " -m pip install bitsandbytes==0.50.2\n"
                 + "Copy-KimodoBuildRuntime -PythonExecutable " + python + " -GxxExecutable " + PsQuote(config.gxxPath) + "\n"
                 + "& " + python + " -m pip check\n"
                 + "& " + python + " -c 'import kimodo,torch,motion_correction._motion_correction; assert torch.version.cuda'";

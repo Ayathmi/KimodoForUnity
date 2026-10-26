@@ -8,12 +8,13 @@ param(
     [Parameter(Mandatory=$true)][string]$PythonExecutable,
     [Parameter(Mandatory=$true)][string]$WorkspaceDirectory,
     [Parameter(Mandatory=$true)][string]$InstallDirectory,
-    [Parameter(Mandatory=$true)][string]$NinjaExecutable,
-    [Parameter(Mandatory=$true)][string]$GccExecutable,
-    [Parameter(Mandatory=$true)][string]$GxxExecutable,
+    [string]$NinjaExecutable = '',
+    [string]$GccExecutable = '',
+    [string]$GxxExecutable = '',
     [Parameter(Mandatory=$true)][string]$LogDirectory,
     [Parameter(Mandatory=$true)][int]$ParentProcessId,
-    [Parameter(Mandatory=$true)][long]$ParentStartTicks
+    [Parameter(Mandatory=$true)][long]$ParentStartTicks,
+    [switch]$QuantizationOnly
 )
 $ErrorActionPreference = 'Stop'
 $exitCode = 1
@@ -35,6 +36,7 @@ try {
     foreach ($name in @('PythonExecutable','WorkspaceDirectory','InstallDirectory','NinjaExecutable','GccExecutable','GxxExecutable')) {
         $command += ' -' + $name + ' ' + (Quote-Literal (Get-Variable -Name $name -ValueOnly))
     }
+    if ($QuantizationOnly) { $command += ' -QuantizationOnly' }
     $command += '; exit 0 } catch { [Console]::Error.WriteLine($_.ToString()); exit 1 }'
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
     $shell = Join-Path $PSHOME 'powershell.exe'

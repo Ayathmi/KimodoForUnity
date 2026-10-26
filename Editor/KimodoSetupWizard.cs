@@ -225,6 +225,16 @@ namespace KimodoForUnity
                     scrollLogToEnd = true;
                     installation = KimodoInstaller.Start(config.Copy());
                 });
+            if (GUILayout.Button(T("安装量化依赖", "Install quantization dependencies")))
+                Try(() =>
+                {
+                    if (KimodoSession.EncoderRunning) throw new InvalidOperationException(T("请先停止生成任务。", "Stop generation first."));
+                    config.Save();
+                    KimodoSession.InvalidateInspection();
+                    installLog = report = null;
+                    scrollLogToEnd = true;
+                    installation = KimodoInstaller.Start(config.Copy(), true);
+                });
             Text(T("如果您希望手动安装，可以在终端中执行如下命令：",
                 "If you prefer manual installation, run the following commands in your terminal:"));
             var commands = KimodoInstaller.ManualCommands(config);
@@ -239,6 +249,7 @@ namespace KimodoForUnity
 
         private void DrawModels()
         {
+            KimodoModelPresets.DrawSelector(config);
             Text(T("您需要同意以下授权协议，方可使用对应的工具：",
                 "Agree to the following licenses before using the corresponding tools:"));
             Link("Kimodo Apache 2.0", "https://github.com/nv-tlabs/kimodo/blob/main/LICENSE");
@@ -246,14 +257,24 @@ namespace KimodoForUnity
             Link("Meta Llama 3 Community License", "https://huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct/blob/main/LICENSE");
             Link("LLM2Vec MIT", "https://github.com/McGill-NLP/llm2vec/blob/main/LICENSE");
             Text("请先自行登录hugging face cli");
-            for (var i = 0; i < 3; i++)
+            var quantized = KimodoModelPresets.IsQuantized(config);
+            for (var i = 0; i < (quantized ? 1 : 3); i++)
             {
                 EditorGUILayout.Space();
                 Link(KimodoModelFiles.Repositories[i], "https://huggingface.co/" + KimodoModelFiles.Repositories[i] + "/tree/main");
                 config.models[i].directory = PathField(T("仓库目录", "Repository directory"), config.models[i].directory, true);
             }
+            if (quantized)
+            {
+                EditorGUILayout.Space();
+                Link(KimodoModelPresets.Repository(config), "https://huggingface.co/" + KimodoModelPresets.Repository(config) + "/tree/main");
+                var directory = PathField(T("仓库目录", "Repository directory"), KimodoModelPresets.Directory(config), true);
+                if (config.modelPreset == KimodoModelPreset.Int8) config.int8Directory = directory;
+                else config.nf4Directory = directory;
+            }
             if (GUILayout.Button(T("一键拉取仓库", "Download repositories")))
                 Try(() => BeginDownload(false));
+            if (quantized) return;
             EditorGUILayout.Space();
             Text(T("Meta Llama 3需要从ollama下载，您需要在这里下载安装ollama：",
                 "Download Meta Llama 3 through Ollama. Download and install Ollama here:"));

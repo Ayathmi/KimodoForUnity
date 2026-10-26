@@ -12,5 +12,7 @@ The plugin does not bundle Python, Kimodo source, model weights, tokenizer files
 - Llama 3 FP16 weights distributed through Ollama retain the Meta Llama 3 Community License. https://ollama.com/library/llama3:8b-instruct-fp16
 - gguf Python package: MIT, installed externally for GGUF reading. https://github.com/ggml-org/llama.cpp/tree/master/gguf-py
 - Hugging Face Transformers: Apache-2.0, installed externally and used for Llama tensor conversion. https://github.com/huggingface/transformers
+- bitsandbytes: MIT, installed externally for CUDA INT8/NF4 inference. https://github.com/bitsandbytes-foundation/bitsandbytes
+- Voxta merged INT8 and NF4 LLM2Vec encoders retain Meta Llama 3 terms and McGill-NLP adapter attribution. https://huggingface.co/voxta/Llama-3-8B-LLM2Vec-ARDY-INT8 and https://huggingface.co/voxta/Llama-3-8B-LLM2Vec-ARDY-NF4
 
 Built with Meta Llama 3.

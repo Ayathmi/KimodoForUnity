@@ -16,7 +16,7 @@ namespace KimodoForUnity
     public sealed class KimodoJob
     {
         /// <summary>Schema version.</summary>
-        public int schemaVersion = 1;
+        public int schemaVersion = 2;
         /// <summary>Unique task identifier.</summary>
         public string id;
         /// <summary>UTC creation time.</summary>
@@ -25,6 +25,10 @@ namespace KimodoForUnity
         public string prompt;
         /// <summary>Requested duration in seconds.</summary>
         public float duration;
+        /// <summary>Requested BVH and NPZ sampling rate, independent of the checkpoint's native rate.</summary>
+        public int requestedFps = 30;
+        /// <summary>Encoder combination used by this task.</summary>
+        public KimodoModelPreset modelPreset;
         /// <summary>Recorded seed.</summary>
         public int seed;
         /// <summary>Denoising steps.</summary>
@@ -120,7 +124,7 @@ namespace KimodoForUnity
                 throw new InvalidOperationException("Stop the current service before changing its configuration.");
             inspectedConfig = config.Copy();
             inspectedSignature = Signature(config);
-            inspectedReady = KimodoDependencyCheck.CanGenerate(probe, files);
+            inspectedReady = KimodoDependencyCheck.CanGenerate(probe, files, config);
             inspectedReport = JsonUtility.ToJson(probe);
             status = inspectedReady ? "Basic offline checks passed. Real inference is not yet verified."
                 : "Dependencies are incomplete.";
@@ -146,7 +150,7 @@ namespace KimodoForUnity
             modelLayout = KimodoModelFiles.CreateLayout(config);
             retainedOutput = "";
             encoderLogFile = KimodoPaths.Child(config.assetsRoot, "Logs", "encoder-" + Guid.NewGuid().ToString("N") + ".log");
-            var info = KimodoProcess.StartInfo(config, new[] { "-B", "-m", "kimodo.scripts.run_text_encoder_server" }, config.assetsRoot, modelLayout);
+            var info = KimodoProcess.StartInfo(config, new[] { "-B", "-c", KimodoRuntimeBridge.EncoderCode }, config.assetsRoot, modelLayout);
             encoder = new KimodoOwnedProcess(info);
             encoderStarted = lastUse = DateTime.UtcNow;
             status = "Loading the local text encoder on " + (config.cpuTextEncoder ? "CPU (explicit fallback)" : "CUDA") + ".";
@@ -162,16 +166,17 @@ namespace KimodoForUnity
         }
 
         /// <summary>Validates and persists one task before adding it to the queue.</summary>
-        public static void Enqueue(KimodoConfiguration config, string prompt, float duration, int seed, int steps)
+        public static void Enqueue(KimodoConfiguration config, string prompt, float duration, int seed, int steps, int frameRate = 30)
         {
             EnsureReady(config);
-            ValidateRequest(prompt, duration, steps);
+            ValidateRequest(prompt, duration, steps, frameRate);
             StartEncoder(config);
             var job = new KimodoJob
             {
                 id = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N").Substring(0, 8),
                 createdUtc = DateTime.UtcNow.ToString("O"), prompt = prompt.Trim(), duration = duration,
                 seed = seed, steps = steps, textDevice = config.cpuTextEncoder ? "cpu" : "cuda",
+                requestedFps = frameRate, modelPreset = config.modelPreset,
                 state = "Queued", pythonPath = config.RuntimePython, dependencyReport = inspectedReport
             };
             var folder = JobFolder(config, job.id);
@@ -187,12 +192,14 @@ namespace KimodoForUnity
         }
 
         /// <summary>Pure request validation independent of any Python environment.</summary>
-        public static void ValidateRequest(string prompt, float duration, int steps)
+        public static void ValidateRequest(string prompt, float duration, int steps, int frameRate = 30)
         {
             if (string.IsNullOrWhiteSpace(prompt) || prompt.Length > 2048 || prompt.IndexOf('\0') >= 0)
                 throw new ArgumentException("Prompt must contain 1-2048 characters.");
-            if (float.IsNaN(duration) || float.IsInfinity(duration) || duration < 0.1f || duration > 10f)
-                throw new ArgumentException("Single-prompt duration must be 0.1-10 seconds.");
+            if (float.IsNaN(duration) || float.IsInfinity(duration) || duration < 1f || duration != Math.Truncate(duration))
+                throw new ArgumentException("Duration must be a positive whole number of seconds.");
+            if (frameRate < 1 || frameRate > 60) throw new ArgumentException("Frame rate must be 1-60 fps.");
+            if (duration > 10f) throw new ArgumentException("The current single-prompt model supports at most 10 seconds.");
             if (steps < 1 || steps > 1000) throw new ArgumentException("Steps must be 1-1000.");
         }
 
@@ -271,7 +278,8 @@ namespace KimodoForUnity
                     var file = Path.Combine(folder, "record.json");
                     if (!File.Exists(file) || new FileInfo(file).Length > 65536) continue;
                     var job = JsonUtility.FromJson<KimodoJob>(File.ReadAllText(file));
-                    if (job == null || job.schemaVersion != 1 || job.id != id) continue;
+                    if (job == null || job.schemaVersion < 1 || job.schemaVersion > 2 || job.id != id) continue;
+                    if (job.schemaVersion == 1) { job.requestedFps = 30; job.modelPreset = KimodoModelPreset.Fp16; }
                     if (job.state == "Running" || job.state == "Queued")
                     {
                         job.state = "Interrupted";
@@ -326,8 +334,10 @@ namespace KimodoForUnity
             var folder = JobFolder(inspectedConfig, active.id);
             var info = KimodoProcess.StartInfo(inspectedConfig, new[]
             {
-                "-B", "-m", "kimodo.scripts.generate", "--model", active.model,
-                "--input_folder", Path.Combine(folder, "input"), "--output", Path.Combine(folder, "output", "motion"),
+                "-B", "-c", KimodoRuntimeBridge.GenerationCode,
+                Path.Combine(folder, "output", "motion"), active.requestedFps.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ((int)active.duration).ToString(System.Globalization.CultureInfo.InvariantCulture), "--model", active.model,
+                "--input_folder", Path.Combine(folder, "input"), "--output", Path.Combine(folder, "output", "motion-native"),
                 "--bvh", "--bvh_standard_tpose"
             }, folder, modelLayout);
             active.state = "Running";
@@ -352,6 +362,8 @@ namespace KimodoForUnity
                 var motion = KimodoBvh.Read(bvh);
                 active.frames = motion.Frames;
                 active.fps = 1f / motion.FrameTime;
+                if (Math.Abs(active.fps - active.requestedFps) > 0.01f || Math.Abs(motion.Duration - active.duration) > 0.001f)
+                    throw new InvalidDataException("Output timing does not match the requested frame rate and duration.");
                 using (var hash = SHA256.Create())
                 using (var stream = File.OpenRead(bvh))
                     active.bvhSha256 = BitConverter.ToString(hash.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();

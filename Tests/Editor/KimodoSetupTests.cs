@@ -85,7 +85,7 @@ namespace KimodoForUnity.Tests
             var config = JsonUtility.FromJson<KimodoConfiguration>(
                 "{\"schemaVersion\":3,\"models\":[{\"directory\":\"D:/motion\",\"files\":[{\"path\":\"weights\",\"sha256\":\"old\"}]},{\"directory\":\"D:/encoder\"},{\"directory\":\"D:/adapter\"}]}");
             config.Normalize();
-            Assert.AreEqual(6, config.schemaVersion);
+            Assert.AreEqual(7, config.schemaVersion);
             Assert.AreEqual("D:/motion", config.models[0].directory);
             Assert.AreEqual("D:/encoder", config.models[1].directory);
             Assert.AreEqual("D:/adapter", config.models[2].directory);
@@ -100,7 +100,7 @@ namespace KimodoForUnity.Tests
         {
             var config = JsonUtility.FromJson<KimodoConfiguration>("{\"schemaVersion\":1,\"assetsRoot\":\"D:/Kimodo Assets\",\"pythonPath\":\"D:/Python/python.exe\",\"sourcePath\":\"D:/retired\"}");
             config.Normalize();
-            Assert.AreEqual(6, config.schemaVersion);
+            Assert.AreEqual(7, config.schemaVersion);
             Assert.That(config.installRoot.Replace('\\', '/'), Is.EqualTo("D:/Kimodo Assets/Environments/kimodo-py314"));
             Assert.AreEqual(4, config.models.Length);
             StringAssert.DoesNotContain("sourcePath", JsonUtility.ToJson(config));
@@ -175,7 +175,7 @@ namespace KimodoForUnity.Tests
             var config = DownloadConfiguration();
             config.schemaVersion = 5;
             config.Normalize();
-            Assert.AreEqual(6, config.schemaVersion);
+            Assert.AreEqual(7, config.schemaVersion);
             Assert.AreEqual(Path.Combine(root, "base"), config.models[3].directory);
             Assert.AreEqual(Path.Combine(root, "Models", "Ollama"), config.ollamaModelsPath);
         }
