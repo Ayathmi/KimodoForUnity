@@ -19,7 +19,7 @@ Created by GitHub: [@Ayathmi](https://github.com/Ayathmi).
 1. 安装Python、Ollama、Ninja、GCC、G++。
 2. 确保`RAM >= 16GB`，`VRAM >= 8GB`。
 
-> 注意：作者在实测运行FP16版本时观测到RAM峰值占用为52.9GB、显存占用为15.6GB；对应的，INT8版本RAM峰值为约33GB，显存占用11.3GB；NF4版本RAM峰值则为24GB，现存峰值为7.9GB。
+> 注意：作者在实测运行FP16版本时观测到RAM峰值占用为52.9GB、显存占用为15.6GB；对应的，INT8版本RAM峰值为约33GB，显存占用11.3GB；NF4版本RAM峰值则为24GB，显存峰值为7.9GB。
 
 > 注意：本项目测试时使用Python 3.14、pybind 3.11 for Python 3.x、CUDA 12.8、Pytorch 2.10.0。
 
