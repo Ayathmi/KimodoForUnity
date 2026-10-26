@@ -1,0 +1,9 @@
+{
+  "name": "KimodoForUnity.Editor",
+  "rootNamespace": "KimodoForUnity",
+  "references": [],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": false,
+  "allowUnsafeCode": false,
+  "noEngineReferences": false
+}

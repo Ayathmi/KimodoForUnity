@@ -1,0 +1,14 @@
+*.meta
+*.unitypackage
+*.log
+*.pyc
+__pycache__/
+.venv/
+venv/
+Envs/
+Models/
+Cache/
+Temp/
+Jobs/
+.DS_Store
+Thumbs.db
